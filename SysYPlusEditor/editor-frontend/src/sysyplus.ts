@@ -95,6 +95,25 @@ function findSymbolInScopeChain(scope: Scope, name: string): Variable | Function
   return result;
 }
 
+// 检查变量
+function findVariableWithScope(scope: Scope, name: string, parentFunc?: Function): { variable: Variable, scopeType: string, funcName?: string } | undefined {
+  // 当前作用域
+  for (const v of scope.variables) {
+    if (v.name === name) {
+      if (!scope.parent) return { variable: v, scopeType: "全局" };
+      if (parentFunc) return { variable: v, scopeType: "函数局部", funcName: parentFunc.name };
+      return { variable: v, scopeType: "局部" };
+    }
+  }
+  // 递归到父作用域
+  if (scope.parent) {
+    // 如果当前作用域是函数作用域，传递函数信息
+    const func = scope.functions.length > 0 ? scope.functions[scope.functions.length - 1] : parentFunc;
+    return findVariableWithScope(scope.parent, name, func);
+  }
+  return undefined;
+}
+
 // 解析代码并构建符号表
 export function parseCode(code: string): { scope: Scope; errors: monacoType.editor.IMarkerData[] } {
   const lines = code.split('\n');
@@ -140,7 +159,12 @@ export function parseCode(code: string): { scope: Scope; errors: monacoType.edit
 
     // 新增：检查缺少分号的错误
     const trimmedLine = line.trim();
-    if (trimmedLine && !trimmedLine.endsWith(';') && !trimmedLine.endsWith('{') && !trimmedLine.endsWith('}')) {
+    if (
+      trimmedLine &&
+      !trimmedLine.endsWith(';') &&
+      !trimmedLine.endsWith('{') &&
+      !trimmedLine.endsWith('}')
+    ) {
       // 检查是否是变量声明
       const varDeclMatch = trimmedLine.match(/^\s*(?:const\s+)?(int|float|char)\s+[a-zA-Z_]\w*(?:\s*\[\s*\d+\s*\])*\s*(?:=\s*[^;]+)?$/);
       if (varDeclMatch) {
@@ -179,6 +203,19 @@ export function parseCode(code: string): { scope: Scope; errors: monacoType.edit
           endLineNumber: lineNumber,
           endColumn: line.length + 1,
           message: "表达式语句缺少分号 ';'"
+        });
+      }
+
+      // 新增：检查 return/break/continue 缺少分号
+      const ctrlMatch = trimmedLine.match(/^(return|break|continue)(\s+[^;]+)?$/);
+      if (ctrlMatch) {
+        errors.push({
+          severity: monacoType.MarkerSeverity.Error,
+          startLineNumber: lineNumber,
+          startColumn: line.length,
+          endLineNumber: lineNumber,
+          endColumn: line.length + 1,
+          message: `${ctrlMatch[1]} 语句缺少分号 ';'`
         });
       }
     }
@@ -409,6 +446,22 @@ export function parseCode(code: string): { scope: Scope; errors: monacoType.edit
         const existingFuncInScopeChain = findSymbolInScopeChain(currentScope, name);
         const isFunctionNameConflict = existingFuncInScopeChain && 'parameters' in existingFuncInScopeChain;
 
+        // 只要不是全局作用域，声明变量时都检查全局变量冲突
+        if (currentScope !== globalScope) {
+          const globalVar = globalScope.variables.find(v => v.name === name);
+          if (globalVar) {
+            errors.push({
+              severity: monacoType.MarkerSeverity.Error,
+              startLineNumber: lineNumber,
+              startColumn: cleanLine.indexOf(name) + 1,
+              endLineNumber: lineNumber,
+              endColumn: cleanLine.indexOf(name) + name.length + 1,
+              message: `局部变量 '${name}' 不能与全局变量重名 (全局变量定义在第 ${globalVar.line} 行)`
+            });
+            continue;
+          }
+        }
+
         if (existingVarInCurrentScope || isFunctionNameConflict) {
           let message = `变量 '${name}' 重复定义`;
           if (existingVarInCurrentScope) {
@@ -504,15 +557,20 @@ export function parseCode(code: string): { scope: Scope; errors: monacoType.edit
         column: cleanLine.indexOf(name) + 1
       });
 
-      // 将函数参数添加到当前作用域的变量列表，以便后续检查
+      // 新建函数作用域，并将其加入作用域栈
+      const functionScope: Scope = { variables: [], functions: [], structs: [], parent: currentScope };
+      scopeStack.push(functionScope);
+      currentScope = functionScope;
+
+      // 将函数参数添加到函数作用域的变量列表
       parameters.forEach(param => {
         currentScope.variables.push({
           name: param.name,
           type: param.type,
           isConst: false,
-          line: lineNumber, // 参数行号设置为函数头行号
-          column: cleanLine.indexOf(param.name) + 1, // 参数列号
-          initialized: true, // 参数默认已初始化
+          line: lineNumber,
+          column: cleanLine.indexOf(param.name) + 1,
+          initialized: true,
           isArray: false,
           arraySize: undefined
         });
@@ -832,16 +890,16 @@ export function registerSysYPlusLanguage(monaco: typeof monacoType) {
       const code = model.getValue();
       const { scope } = parseCode(code);
 
-      // 检查变量
-      const variable = scope.variables.find(v => v.name === word.word);
-      if (variable) {
-        let typeInfo = `**变量**: \`${variable.name}\`\n\n**类型**: \`${variable.type}\``;
-        if (variable.isConst) typeInfo += '\n\n**修饰符**: `const`';
-        if (variable.isArray) typeInfo += `\n\n**数组大小**: \`${variable.arraySize}\``;
-        typeInfo += `\n\n**定义位置**: 第 ${variable.line} 行`;
-
+      // 递归查找变量及其作用域类型
+      const found = findVariableWithScope(scope, word.word);
+      if (found) {
+        let typeInfo = `**变量**: \`${found.variable.name}\`\n\n**类型**: \`${found.variable.type}\``;
+        if (found.variable.isConst) typeInfo += '\n\n**修饰符**: `const`';
+        if (found.variable.isArray) typeInfo += `\n\n**数组大小**: \`${found.variable.arraySize}\``;
+        typeInfo += `\n\n**定义位置**: 第 ${found.variable.line} 行`;
+        typeInfo += `\n\n**作用域**: ${found.scopeType}${found.funcName ? `（${found.funcName}）` : ''}`;
         return {
-          range: new monaco.Range(
+          range: new monacoType.Range(
             position.lineNumber,
             word.startColumn,
             position.lineNumber,
@@ -940,15 +998,26 @@ export function registerSysYPlusLanguage(monaco: typeof monacoType) {
         });
       });
 
-      // 添加变量补全
+      // 添加变量补全，为数组类型提供特殊处理
       scope.variables.forEach(variable => {
-        suggestions.push({
-          label: variable.name,
-          kind: monaco.languages.CompletionItemKind.Variable,
-          insertText: variable.name,
-          detail: `${variable.type} ${variable.name}${variable.isConst ? ' (const)' : ''}`,
-          documentation: `定义在第 ${variable.line} 行`
-        });
+        if (variable.isArray) {
+          suggestions.push({
+            label: variable.name,
+            kind: monaco.languages.CompletionItemKind.Variable,
+            insertText: `${variable.name}[${1}]`, // snippet 语法，自动选中中括号内
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            detail: `${variable.type} ${variable.name}[${variable.arraySize}]`,
+            documentation: `数组变量，定义在第 ${variable.line} 行\n大小: ${variable.arraySize}`,
+          });
+        } else {
+          suggestions.push({
+            label: variable.name,
+            kind: monaco.languages.CompletionItemKind.Variable,
+            insertText: variable.name,
+            detail: `${variable.type} ${variable.name}${variable.isConst ? ' (const)' : ''}`,
+            documentation: `定义在第 ${variable.line} 行`
+          });
+        }
       });
 
       // 添加函数补全
@@ -980,6 +1049,60 @@ export function registerSysYPlusLanguage(monaco: typeof monacoType) {
         insertText: 'int main() {\n\t${1:// 代码}\n\treturn 0;\n}',
         insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
         detail: '主函数模板'
+      });
+
+      // 添加数组初始化代码片段
+      suggestions.push({
+        label: 'arrfill',
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: [
+          'for(int ${1:i} = 0; ${1:i} < ${2:size}; ${1:i}++) {',
+          '\t${3:arr}[${1:i}] = ${4:value};',
+          '}'
+        ].join('\n'),
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        documentation: '使用循环填充数组',
+        detail: '循环填充数组的基本结构'
+      });
+
+      // 添加数组手动初始化代码片段
+      suggestions.push({
+        label: 'arrinit',
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: '${1:arr}[] = {${2:0}, ${3:1}, ${4:2}};',
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        documentation: '手动初始化数组',
+        detail: '手动指定数组初始值'
+      });
+
+      // 添加二维数组初始化代码片段
+      suggestions.push({
+        label: 'arr2d',
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: [
+          'for(int ${1:i} = 0; ${1:i} < ${2:rows}; ${1:i}++) {',
+          '\tfor(int ${3:j} = 0; ${3:j} < ${4:cols}; ${3:j}++) {',
+          '\t\t${5:arr}[${1:i}][${3:j}] = ${6:value};',
+          '\t}',
+          '}'
+        ].join('\n'),
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        documentation: '使用嵌套循环填充二维数组',
+        detail: '循环填充二维数组的基本结构'
+      });
+
+      // 添加数组赋值代码片段
+      suggestions.push({
+        label: 'arrcpy',
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: [
+          'for(int ${1:i} = 0; ${1:i} < ${2:size}; ${1:i}++) {',
+          '\t${3:dest}[${1:i}] = ${4:src}[${1:i}];',
+          '}'
+        ].join('\n'),
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        documentation: '数组复制',
+        detail: '将一个数组复制到另一个数组'
       });
 
       return { suggestions };

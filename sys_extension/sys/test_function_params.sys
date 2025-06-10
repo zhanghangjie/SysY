@@ -1,0 +1,69 @@
+// 测试函数参数识别问题修复
+
+// 测试1：简单函数参数
+int add(int a, int b) {
+    // 这里的a和b应该不会报"未定义的标识符"错误
+    return a + b;
+}
+
+// 测试2：函数参数与局部变量同名
+int calculate(int param1, float param2) {
+    // 使用函数参数
+    int temp = param1 + param2;
+    
+    // 声明同名局部变量
+    int param1 = 100;
+    float param2 = 3.14;
+    
+    // 使用局部变量
+    return param1 + param2;
+}
+
+// 测试3：函数参数作为函数调用的参数
+int multiply(int x, int y) {
+    return x * y;
+}
+
+int test(int a, int b) {
+    // 将函数参数传递给另一个函数
+    int result = multiply(a, b);
+    return result;
+}
+
+// 测试4：函数参数用于数组访问
+int getArrayValue(int index) {
+    int arr[10] = {0,1,2,3,4,5,6,7,8,9};
+    // 使用函数参数作为数组索引
+    return arr[index];
+}
+
+// 测试5：函数参数用于赋值
+void setValue(int newValue) {
+    int localVar;
+    // 将函数参数赋值给局部变量
+    localVar = newValue;
+}
+
+// 测试6：多个函数嵌套
+int func1(int p1) {
+    return p1 * 2;
+}
+
+int func2(int p2) {
+    // 使用函数参数调用另一个函数
+    return func1(p2);
+}
+
+int main() {
+    int x = 5;
+    int y = 10;
+    
+    int sum = add(x, y);
+    int calc = calculate(x, y);
+    int test_result = test(x, y);
+    int array_val = getArrayValue(x);
+    setValue(x);
+    int nested = func2(x);
+    
+    return 0;
+} 

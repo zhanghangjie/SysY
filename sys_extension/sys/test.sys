@@ -1,0 +1,34 @@
+// sys 语言测试文件
+// 支持两种变量声明语法
+
+// 简洁语法
+int a = 2;
+string name = "Hello World";
+bool isActive = true;
+float pi = 3.14;
+
+// 完整语法
+int const b = 5;
+string var message = "Variable message";
+bool let flag = false;
+double const e = 2.718;
+
+function calculate(int x, int y) {
+    int result = x + y;
+    return result;
+}
+
+if (a > 0) {
+    // 这是一个注释
+    string output = "Positive number";
+} else {
+    string output = "Non-positive number";
+}
+
+/*
+这是一个
+多行注释
+支持两种语法：
+1. int a = 2;        // 简洁语法
+2. int const a = 2;  // 完整语法
+*/ 

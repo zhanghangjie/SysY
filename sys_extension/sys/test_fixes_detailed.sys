@@ -1,0 +1,74 @@
+// 测试文件：验证四个BUG修复情况
+
+// 1. 测试结构体悬浮显示
+struct Point {
+    int x;
+    int y;
+}
+
+struct Student {
+    int id;
+    float score;
+    char grade;
+}
+
+// 2. 测试结构体成员不应该报"未使用"警告
+struct Person {
+    int age;        // 这些成员不应该有"未使用"警告
+    char name;
+    float height;
+}
+
+// 3. 测试二维数组识别
+int main() {
+    // 一维数组
+    int arr1[5];
+    
+    // 二维数组
+    int arr2[3][4];
+    int matrix[10][20];
+    
+    // 三维数组
+    int cube[2][3][4];
+    
+    // 数组访问测试
+    arr1[0] = 1;        // 正常
+    arr1[4] = 2;        // 正常 
+    arr1[5] = 3;        // 应该报错：越界
+    
+    arr2[0][0] = 10;    // 正常
+    arr2[2][3] = 20;    // 正常
+    arr2[3][0] = 30;    // 应该报错：第一维越界
+    
+    return 0;
+}
+
+// 4. 测试函数参数悬浮显示
+int calculate(int param1, float param2) {
+    int param1 = 100;  // 局部变量同名，悬浮时应该显示正确的变量信息
+    float param2 = 3.14;
+    
+    return param1 + param2;
+}
+
+// 测试结构体变量悬浮显示
+void testStruct() {
+    struct Point p;     // 悬浮到p应该显示结构体变量信息
+    struct Student s;   // 悬浮到s应该显示结构体变量信息
+    
+    p.x = 10;
+    p.y = 20;
+    s.id = 1001;
+}
+
+// 测试函数参数作用域
+int add(int a, int b) {
+    // 悬浮到a和b应该显示函数参数信息
+    int result = a + b;
+    return result;
+}
+
+int test(int a) {
+    int a = 5;  // 局部变量a，悬浮应该显示这个而不是参数a
+    return a;
+} 
